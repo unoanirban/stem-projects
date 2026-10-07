@@ -930,13 +930,13 @@ window.addEventListener(
 </script>
 
 <div class="footer">
-
-    ESP8266 Presence Detection System
+    ESP8266 Temperature & Humidity Monitor
 
     <div style="margin-top: 8px;">
         <a
             href="https://github.com/unoanirban"
             target="_blank"
+            rel="noopener noreferrer"
             style="
                 color: #94a3b8;
                 text-decoration: none;
@@ -946,7 +946,6 @@ window.addEventListener(
             github.com/unoanirban
         </a>
     </div>
-
 </div>
 
 </body>
