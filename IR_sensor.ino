@@ -1,12 +1,13 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <time.h>
 
 // =====================================================
 // WiFi Configuration
 // =====================================================
 
-const char* ssid = "YOUR_WIFI_NAME";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "Android_AP";
+const char* password = "12345678";
 
 // =====================================================
 // Pin Configuration
@@ -17,7 +18,7 @@ const char* password = "YOUR_WIFI_PASSWORD";
 
 // Most IR obstacle sensors:
 // LOW  = Object detected
-// HIGH = No object
+// HIGH = No object detected
 #define OBJECT_DETECTED LOW
 
 // =====================================================
@@ -27,14 +28,28 @@ const char* password = "YOUR_WIFI_PASSWORD";
 ESP8266WebServer server(80);
 
 // =====================================================
-// Variables
+// NTP Configuration
+// =====================================================
+
+// India Standard Time = UTC + 5:30
+const long GMT_OFFSET_SEC = 19800;
+const int DAYLIGHT_OFFSET_SEC = 0;
+
+// =====================================================
+// Detection Variables
 // =====================================================
 
 bool objectDetected = false;
 bool previousDetection = false;
 
 unsigned long detectionCount = 0;
-unsigned long lastDetectionTime = 0;
+
+// Stores the actual Unix timestamp
+time_t lastDetectionTimestamp = 0;
+
+// =====================================================
+// Buzzer
+// =====================================================
 
 const unsigned long buzzerInterval = 180;
 
@@ -60,7 +75,7 @@ const char MAIN_PAGE[] PROGMEM = R"rawliteral(
 <style>
 
 /* =====================================================
-   GLOBAL
+   RESET
    ===================================================== */
 
 * {
@@ -68,6 +83,11 @@ const char MAIN_PAGE[] PROGMEM = R"rawliteral(
     padding: 0;
     box-sizing: border-box;
 }
+
+
+/* =====================================================
+   BODY
+   ===================================================== */
 
 body {
 
@@ -85,7 +105,7 @@ body {
 
     background:
         radial-gradient(
-            circle at 20% 0%,
+            circle at 15% 0%,
             #1e293b,
             #0f172a 45%,
             #020617
@@ -95,6 +115,7 @@ body {
 
 }
 
+
 /* =====================================================
    CONTAINER
    ===================================================== */
@@ -103,11 +124,12 @@ body {
 
     width: 100%;
 
-    max-width: 900px;
+    max-width: 950px;
 
     margin: auto;
 
 }
+
 
 /* =====================================================
    HEADER
@@ -145,6 +167,7 @@ body {
     font-size: 14px;
 
 }
+
 
 /* =====================================================
    CONNECTION STATUS
@@ -188,6 +211,7 @@ body {
 
 }
 
+
 /* =====================================================
    MAIN STATUS CARD
    ===================================================== */
@@ -198,7 +222,7 @@ body {
 
     overflow: hidden;
 
-    padding: 35px 25px;
+    padding: 38px 25px;
 
     border-radius: 28px;
 
@@ -226,15 +250,16 @@ body {
 
 }
 
+
 /* =====================================================
    STATUS ICON
    ===================================================== */
 
 .status-icon {
 
-    width: 110px;
+    width: 115px;
 
-    height: 110px;
+    height: 115px;
 
     margin:
         0 auto 20px;
@@ -265,6 +290,11 @@ body {
 
 }
 
+
+/* =====================================================
+   DETECTED STATE
+   ===================================================== */
+
 .status-icon.detected {
 
     background:
@@ -282,6 +312,7 @@ body {
 
 }
 
+
 @keyframes pulse {
 
     0% {
@@ -298,13 +329,14 @@ body {
 
 }
 
+
 /* =====================================================
    STATUS TEXT
    ===================================================== */
 
 .status-title {
 
-    font-size: 28px;
+    font-size: 29px;
 
     font-weight: 700;
 
@@ -319,6 +351,7 @@ body {
     font-size: 14px;
 
 }
+
 
 /* =====================================================
    STAT GRID
@@ -337,9 +370,10 @@ body {
 
 }
 
+
 .stat {
 
-    padding: 22px;
+    padding: 23px;
 
     border-radius: 20px;
 
@@ -351,6 +385,7 @@ body {
         rgba(255,255,255,0.07);
 
 }
+
 
 .stat-label {
 
@@ -365,15 +400,28 @@ body {
 
 }
 
+
 .stat-value {
 
-    margin-top: 8px;
+    margin-top: 9px;
 
-    font-size: 28px;
+    font-size: 26px;
 
     font-weight: 700;
 
 }
+
+
+.stat-sub {
+
+    margin-top: 5px;
+
+    color: #64748b;
+
+    font-size: 12px;
+
+}
+
 
 /* =====================================================
    EVENT CARD
@@ -396,6 +444,7 @@ body {
 
 }
 
+
 .event-title {
 
     font-size: 16px;
@@ -403,6 +452,7 @@ body {
     font-weight: 600;
 
 }
+
 
 .event {
 
@@ -414,7 +464,7 @@ body {
 
     align-items: center;
 
-    padding: 13px 15px;
+    padding: 15px;
 
     border-radius: 13px;
 
@@ -422,6 +472,7 @@ body {
         rgba(255,255,255,0.04);
 
 }
+
 
 .event-left {
 
@@ -433,6 +484,7 @@ body {
 
 }
 
+
 .event-dot {
 
     width: 8px;
@@ -441,9 +493,20 @@ body {
 
     border-radius: 50%;
 
-    background: #ef4444;
+    background: #64748b;
 
 }
+
+
+.event-dot.active {
+
+    background: #ef4444;
+
+    box-shadow:
+        0 0 10px #ef4444;
+
+}
+
 
 .event-time {
 
@@ -453,6 +516,73 @@ body {
 
 }
 
+
+/* =====================================================
+   NTP CARD
+   ===================================================== */
+
+.ntp-card {
+
+    margin-top: 20px;
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    padding: 17px 20px;
+
+    border-radius: 18px;
+
+    background:
+        rgba(255,255,255,0.04);
+
+    border:
+        1px solid
+        rgba(255,255,255,0.07);
+
+}
+
+
+.ntp-label {
+
+    color: #94a3b8;
+
+    font-size: 13px;
+
+}
+
+
+.ntp-value {
+
+    font-size: 13px;
+
+    font-weight: 600;
+
+}
+
+
+.ntp-dot {
+
+    display: inline-block;
+
+    width: 7px;
+
+    height: 7px;
+
+    margin-right: 6px;
+
+    border-radius: 50%;
+
+    background: #22c55e;
+
+    box-shadow:
+        0 0 8px #22c55e;
+
+}
+
+
 /* =====================================================
    FOOTER
    ===================================================== */
@@ -461,13 +591,14 @@ body {
 
     text-align: center;
 
-    margin-top: 20px;
+    margin-top: 22px;
 
     color: #475569;
 
     font-size: 12px;
 
 }
+
 
 /* =====================================================
    MOBILE
@@ -511,6 +642,18 @@ body {
 
     }
 
+    .ntp-card {
+
+        flex-direction:
+            column;
+
+        align-items:
+            flex-start;
+
+        gap: 8px;
+
+    }
+
 }
 
 </style>
@@ -520,10 +663,13 @@ body {
 
 <body>
 
+
 <div class="container">
 
 
-    <!-- HEADER -->
+    <!-- ============================================
+         HEADER
+         ============================================ -->
 
     <div class="header">
 
@@ -555,9 +701,12 @@ body {
     </div>
 
 
-    <!-- MAIN STATUS -->
+    <!-- ============================================
+         MAIN STATUS
+         ============================================ -->
 
     <div class="status-card">
+
 
         <div
             id="statusIcon"
@@ -581,14 +730,17 @@ body {
             id="statusDescription"
             class="status-description">
 
-            No object detected
+            No object detected nearby
 
         </div>
+
 
     </div>
 
 
-    <!-- STATS -->
+    <!-- ============================================
+         STATISTICS
+         ============================================ -->
 
     <div class="stats">
 
@@ -605,6 +757,10 @@ body {
 
                 0
 
+            </div>
+
+            <div class="stat-sub">
+                Detection events
             </div>
 
         </div>
@@ -624,15 +780,26 @@ body {
 
             </div>
 
+            <div
+                id="lastDate"
+                class="stat-sub">
+
+                No detection recorded
+
+            </div>
+
         </div>
 
 
     </div>
 
 
-    <!-- EVENT -->
+    <!-- ============================================
+         LATEST EVENT
+         ============================================ -->
 
     <div class="event-card">
+
 
         <div class="event-title">
             Latest Event
@@ -641,12 +808,14 @@ body {
 
         <div class="event">
 
+
             <div class="event-left">
 
                 <span
                     id="eventDot"
                     class="event-dot">
                 </span>
+
 
                 <span id="eventText">
                     Monitoring area
@@ -663,7 +832,35 @@ body {
 
             </span>
 
+
         </div>
+
+
+    </div>
+
+
+    <!-- ============================================
+         NTP STATUS
+         ============================================ -->
+
+    <div class="ntp-card">
+
+
+        <div class="ntp-label">
+            System Clock
+        </div>
+
+
+        <div
+            id="ntpStatus"
+            class="ntp-value">
+
+            <span class="ntp-dot"></span>
+
+            NTP synchronized • IST
+
+        </div>
+
 
     </div>
 
@@ -709,6 +906,11 @@ const lastDetection =
         "lastDetection"
     );
 
+const lastDate =
+    document.getElementById(
+        "lastDate"
+    );
+
 const eventText =
     document.getElementById(
         "eventText"
@@ -719,14 +921,24 @@ const eventTime =
         "eventTime"
     );
 
+const eventDot =
+    document.getElementById(
+        "eventDot"
+    );
+
 const connection =
     document.getElementById(
         "connection"
     );
 
+const ntpStatus =
+    document.getElementById(
+        "ntpStatus"
+    );
+
 
 /* =====================================================
-   FETCH API
+   GET API DATA
    ===================================================== */
 
 async function updateStatus() {
@@ -742,23 +954,58 @@ async function updateStatus() {
             );
 
 
+        if(!response.ok) {
+
+            throw new Error(
+                "API error"
+            );
+
+        }
+
+
         const data =
             await response.json();
 
 
-        /* Connection */
+        /* ---------------------------------------------
+           CONNECTION
+           --------------------------------------------- */
 
         connection.textContent =
             "Connected";
 
 
-        /* Detection count */
+        /* ---------------------------------------------
+           NTP STATUS
+           --------------------------------------------- */
+
+        if(data.timeSynced) {
+
+            ntpStatus.innerHTML =
+                '<span class="ntp-dot"></span>' +
+                'NTP synchronized • IST';
+
+        }
+
+        else {
+
+            ntpStatus.innerHTML =
+                '⚠️ Waiting for NTP';
+
+        }
+
+
+        /* ---------------------------------------------
+           COUNT
+           --------------------------------------------- */
 
         count.textContent =
             data.count;
 
 
-        /* Detection state */
+        /* ---------------------------------------------
+           DETECTION
+           --------------------------------------------- */
 
         if(data.detected) {
 
@@ -784,16 +1031,10 @@ async function updateStatus() {
                 "Object / Person detected";
 
 
-            lastDetection.textContent =
-                formatTime(
-                    data.lastDetection
-                );
+            eventDot.classList.add(
+                "active"
+            );
 
-
-            eventTime.textContent =
-                formatTime(
-                    data.lastDetection
-                );
 
         }
 
@@ -814,11 +1055,51 @@ async function updateStatus() {
 
 
             statusDescription.textContent =
-                "No object detected";
+                "No object detected nearby";
 
 
             eventText.textContent =
                 "Monitoring area";
+
+
+            eventDot.classList.remove(
+                "active"
+            );
+
+        }
+
+
+        /* ---------------------------------------------
+           LAST DETECTION
+           --------------------------------------------- */
+
+        if(data.lastDetectionTime !== "") {
+
+            lastDetection.textContent =
+                data.lastDetectionTime;
+
+
+            lastDate.textContent =
+                data.lastDetectionDate;
+
+
+            eventTime.textContent =
+                data.lastDetectionTime;
+
+        }
+
+        else {
+
+            lastDetection.textContent =
+                "Never";
+
+
+            lastDate.textContent =
+                "No detection recorded";
+
+
+            eventTime.textContent =
+                "--";
 
         }
 
@@ -837,33 +1118,15 @@ async function updateStatus() {
 
 
 /* =====================================================
-   FORMAT TIME
-   ===================================================== */
-
-function formatTime(timestamp) {
-
-    if(timestamp === 0) {
-
-        return "Never";
-
-    }
-
-
-    const date =
-        new Date(timestamp);
-
-
-    return date.toLocaleTimeString();
-
-}
-
-
-/* =====================================================
-   UPDATE
+   INITIAL UPDATE
    ===================================================== */
 
 updateStatus();
 
+
+/* =====================================================
+   UPDATE EVERY 500ms
+   ===================================================== */
 
 setInterval(
     updateStatus,
@@ -881,34 +1144,181 @@ setInterval(
 
 
 // =====================================================
-// API: STATUS
+// NTP TIME SYNCHRONIZATION
 // =====================================================
 
-void handleStatus() {
+void setupTime() {
 
-    String json = "{";
+    Serial.println();
+    Serial.println("Starting NTP synchronization...");
 
-    json += "\"detected\":";
-    json += objectDetected ? "true" : "false";
-
-    json += ",";
-
-    json += "\"count\":";
-    json += String(detectionCount);
-
-    json += ",";
-
-    json += "\"lastDetection\":";
-    json += String(lastDetectionTime);
-
-    json += "}";
-
-
-    server.send(
-        200,
-        "application/json",
-        json
+    configTime(
+        GMT_OFFSET_SEC,
+        DAYLIGHT_OFFSET_SEC,
+        "pool.ntp.org",
+        "time.nist.gov"
     );
+
+
+    struct tm timeinfo;
+
+
+    int attempts = 0;
+
+
+    while(
+        !getLocalTime(
+            &timeinfo
+        )
+        &&
+        attempts < 30
+    ) {
+
+        delay(500);
+
+        Serial.print(".");
+
+        attempts++;
+
+    }
+
+
+    Serial.println();
+
+
+    if(attempts < 30) {
+
+        Serial.println(
+            "NTP time synchronized!"
+        );
+
+
+        Serial.print(
+            "Current time: "
+        );
+
+
+        char timeString[50];
+
+
+        strftime(
+            timeString,
+            sizeof(timeString),
+            "%d-%m-%Y %I:%M:%S %p",
+            &timeinfo
+        );
+
+
+        Serial.println(
+            timeString
+        );
+
+    }
+
+    else {
+
+        Serial.println(
+            "NTP synchronization failed."
+        );
+
+    }
+
+}
+
+
+// =====================================================
+// CHECK IF NTP TIME IS VALID
+// =====================================================
+
+bool isTimeSynced() {
+
+    time_t now = time(nullptr);
+
+    // Unix timestamp must be greater than
+    // approximately Jan 1, 2021
+
+    return now > 1609459200;
+
+}
+
+
+// =====================================================
+// FORMAT LAST DETECTION TIME
+// =====================================================
+
+String getLastDetectionTime() {
+
+    if(
+        lastDetectionTimestamp == 0
+    ) {
+
+        return "";
+
+    }
+
+
+    struct tm timeinfo;
+
+
+    localtime_r(
+        &lastDetectionTimestamp,
+        &timeinfo
+    );
+
+
+    char buffer[20];
+
+
+    strftime(
+        buffer,
+        sizeof(buffer),
+        "%I:%M:%S %p",
+        &timeinfo
+    );
+
+
+    return String(buffer);
+
+}
+
+
+// =====================================================
+// FORMAT LAST DETECTION DATE
+// =====================================================
+
+String getLastDetectionDate() {
+
+    if(
+        lastDetectionTimestamp == 0
+    ) {
+
+        return "";
+
+    }
+
+
+    struct tm timeinfo;
+
+
+    localtime_r(
+        &lastDetectionTimestamp,
+        &timeinfo
+    );
+
+
+    char buffer[20];
+
+
+    strftime(
+        buffer,
+        sizeof(buffer),
+        "%d %b %Y",
+        &timeinfo
+    );
+
+
+    return String(buffer);
+
 }
 
 
@@ -922,6 +1332,85 @@ void handleRoot() {
         200,
         "text/html",
         MAIN_PAGE
+    );
+
+}
+
+
+// =====================================================
+// STATUS API
+// =====================================================
+
+void handleStatus() {
+
+    bool synced =
+        isTimeSynced();
+
+
+    String json = "{";
+
+
+    // Detection state
+
+    json += "\"detected\":";
+    json +=
+        objectDetected
+        ? "true"
+        : "false";
+
+
+    // Detection count
+
+    json += ",";
+
+    json += "\"count\":";
+    json += String(
+        detectionCount
+    );
+
+
+    // NTP state
+
+    json += ",";
+
+    json += "\"timeSynced\":";
+    json +=
+        synced
+        ? "true"
+        : "false";
+
+
+    // Last detection time
+
+    json += ",";
+
+    json += "\"lastDetectionTime\":\"";
+
+    json +=
+        getLastDetectionTime();
+
+    json += "\"";
+
+
+    // Last detection date
+
+    json += ",";
+
+    json += "\"lastDetectionDate\":\"";
+
+    json +=
+        getLastDetectionDate();
+
+    json += "\"";
+
+
+    json += "}";
+
+
+    server.send(
+        200,
+        "application/json",
+        json
     );
 
 }
@@ -954,25 +1443,33 @@ void setup() {
 
 
     Serial.println();
+
     Serial.println(
-        "================================"
+        "===================================="
     );
+
     Serial.println(
-        "ESP8266 Presence Detection"
+        "ESP8266 PRESENCE MONITOR"
     );
+
     Serial.println(
-        "================================"
+        "IR + BUZZER + NTP"
+    );
+
+    Serial.println(
+        "===================================="
     );
 
 
     // -------------------------------------------------
-    // Pins
+    // GPIO
     // -------------------------------------------------
 
     pinMode(
         IR_PIN,
         INPUT
     );
+
 
     pinMode(
         BUZZER_PIN,
@@ -993,6 +1490,7 @@ void setup() {
     WiFi.mode(
         WIFI_STA
     );
+
 
     WiFi.begin(
         ssid,
@@ -1018,6 +1516,7 @@ void setup() {
 
     Serial.println();
 
+
     Serial.println(
         "WiFi connected!"
     );
@@ -1027,13 +1526,21 @@ void setup() {
         "IP Address: "
     );
 
+
     Serial.println(
         WiFi.localIP()
     );
 
 
     // -------------------------------------------------
-    // Web Server Routes
+    // NTP
+    // -------------------------------------------------
+
+    setupTime();
+
+
+    // -------------------------------------------------
+    // Web Server
     // -------------------------------------------------
 
     server.on(
@@ -1057,7 +1564,7 @@ void setup() {
 
 
     Serial.println(
-        "Web server started."
+        "HTTP server started."
     );
 
 
@@ -1065,9 +1572,11 @@ void setup() {
         "Open: http://"
     );
 
+
     Serial.print(
         WiFi.localIP()
     );
+
 
     Serial.println();
 
@@ -1080,17 +1589,20 @@ void setup() {
 
 void loop() {
 
+
     // -------------------------------------------------
     // Read IR sensor
     // -------------------------------------------------
 
     bool currentDetection =
-        digitalRead(IR_PIN)
+        digitalRead(
+            IR_PIN
+        )
         == OBJECT_DETECTED;
 
 
     // -------------------------------------------------
-    // New detection event
+    // NEW DETECTION EVENT
     // -------------------------------------------------
 
     if(
@@ -1098,18 +1610,81 @@ void loop() {
         !previousDetection
     ) {
 
+
         detectionCount++;
 
-        lastDetectionTime =
-            millis();
 
+        // Get REAL current time
+
+        time_t now =
+            time(nullptr);
+
+
+        if(
+            now > 1609459200
+        ) {
+
+            lastDetectionTimestamp =
+                now;
+
+        }
+
+
+        Serial.println();
+
+        Serial.println(
+            "================================"
+        );
 
         Serial.println(
             "OBJECT DETECTED!"
         );
 
+
+        if(
+            lastDetectionTimestamp != 0
+        ) {
+
+            Serial.print(
+                "Detection time: "
+            );
+
+
+            Serial.print(
+                getLastDetectionDate()
+            );
+
+
+            Serial.print(
+                " "
+            );
+
+
+            Serial.println(
+                getLastDetectionTime()
+            );
+
+        }
+
+
+        Serial.print(
+            "Detection count: "
+        );
+
+
+        Serial.println(
+            detectionCount
+        );
+
+
+        Serial.println(
+            "================================"
+        );
+
     }
 
+
+    // Update state
 
     objectDetected =
         currentDetection;
@@ -1120,17 +1695,23 @@ void loop() {
 
 
     // -------------------------------------------------
-    // Buzzer
+    // BUZZER
     // -------------------------------------------------
 
-    if(objectDetected) {
+    if(
+        objectDetected
+    ) {
 
-        // Simple intermittent beep
+
+        unsigned long phase =
+            millis()
+            %
+            (buzzerInterval * 2);
+
 
         if(
-            millis() %
-            (buzzerInterval * 2)
-            < buzzerInterval
+            phase <
+            buzzerInterval
         ) {
 
             digitalWrite(
@@ -1162,7 +1743,7 @@ void loop() {
 
 
     // -------------------------------------------------
-    // Web server
+    // WEB SERVER
     // -------------------------------------------------
 
     server.handleClient();
