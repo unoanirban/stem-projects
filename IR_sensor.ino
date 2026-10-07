@@ -865,12 +865,6 @@ body {
     </div>
 
 
-    <div class="footer">
-
-        ESP8266 Presence Detection System
-
-    </div>
-
 
 </div>
 
@@ -1147,6 +1141,7 @@ setInterval(
                 color: #94a3b8;
                 text-decoration: none;
                 font-size: 12px;
+
             "
         >
             github.com/unoanirban
