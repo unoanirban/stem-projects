@@ -6,7 +6,7 @@
 // WiFi Configuration
 // =====================================================
 
-const char* ssid = "Android_AP";
+const char* ssid = "AndroidAP_4123";
 const char* password = "12345678";
 
 // =====================================================
