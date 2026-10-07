@@ -6,8 +6,8 @@
 // WiFi Credentials
 // =====================================================
 
-const char* ssid = "YOUR_WIFI_NAME";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "AndroidAP_4123";
+const char* password = "12345678";
 
 // =====================================================
 // DHT11 Configuration
